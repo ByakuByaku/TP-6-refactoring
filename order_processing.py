@@ -1,3 +1,17 @@
+default_currency = "USD"
+tax_rate=0.21
+
+vip_discount = 50
+save10_discount = 0.10
+save20_discount=0.20
+
+vip_min = 100
+save20_min=200
+
+vip_min_discount=10
+
+
+
 def parse_request(request: dict):
     user_id = request.get("user_id")
     items = request.get("items")
@@ -5,17 +19,16 @@ def parse_request(request: dict):
     currency = request.get("currency")
     return user_id, items, coupon, currency
 
-
-def process_checkout(request: dict) -> dict:
-    user_id, items, coupon, currency = parse_request(request)
-
+def validate_user_data(user_id,items,currency):
     if user_id is None:
         raise ValueError("user_id is required")
     if items is None:
         raise ValueError("items is required")
     if currency is None:
-        currency = "USD"
+        currency = default_currency
+    return currency
 
+def validate_items(items):
     if type(items) is not list:
         raise ValueError("items must be a list")
     if len(items) == 0:
@@ -29,13 +42,13 @@ def process_checkout(request: dict) -> dict:
         if it["qty"] <= 0:
             raise ValueError("qty must be positive")
 
-    subtotal = 0
-    for it in items:
-        subtotal = subtotal + it["price"] * it["qty"]
 
-    discount = 0
+def calculate_subtotal(items):
+    return sum(item["price"] * item["qty"] for item in items)
+
+def calculate_discount(coupon, subtotal):
     if coupon is None or coupon == "":
-        discount = 0
+        return 0
     elif coupon == "SAVE10":
         discount = int(subtotal * 0.10)
     elif coupon == "SAVE20":
@@ -49,15 +62,30 @@ def process_checkout(request: dict) -> dict:
             discount = 10
     else:
         raise ValueError("unknown coupon")
+    return discount
 
-    total_after_discount = subtotal - discount
-    if total_after_discount < 0:
-        total_after_discount = 0
 
-    tax = int(total_after_discount * 0.21)
-    total = total_after_discount + tax
+def calculate_tax(total_after_discount):
+    tax = int(total_after_discount * tax_rate)
+    return tax, total_after_discount + tax
 
-    order_id = str(user_id) + "-" + str(len(items)) + "-" + "X"
+def generate_order_id(user_id, items_count):
+    return f"{user_id}-{items_count}-X"
+
+def process_checkout(request: dict) -> dict:
+    user_id, items, coupon, currency = parse_request(request)
+
+    currency = validate_user_data(user_id, items, currency)
+    validate_items(items)
+
+    subtotal = calculate_subtotal(items)
+
+    discount = calculate_discount(coupon, subtotal)
+
+    total_after_discount = max(0, subtotal - discount)
+    tax, total = calculate_tax(total_after_discount)
+
+    order_id = generate_order_id(user_id, len(items))
 
     return {
         "order_id": order_id,
